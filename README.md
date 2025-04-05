@@ -1,14 +1,89 @@
-# ME5413_Final_Project
+# ROS-Noetic Project
 
-NUS ME5413 Autonomous Mobile Robotics Final Project
-> Authors: [Christina](https://github.com/ldaowen), [Ziggy](https://github.com/ziggyhuang), [Dongen](https://github.com/nuslde), and [Shuo](https://github.com/SS47816)
+## Introduction
 
-![Ubuntu 20.04](https://img.shields.io/badge/OS-Ubuntu_20.04-informational?style=flat&logo=ubuntu&logoColor=white&color=2bbc8a)
-![ROS Noetic](https://img.shields.io/badge/Tools-ROS_Noetic-informational?style=flat&logo=ROS&logoColor=white&color=2bbc8a)
-![C++](https://img.shields.io/badge/Code-C++-informational?style=flat&logo=c%2B%2B&logoColor=white&color=2bbc8a)
-![Python](https://img.shields.io/badge/Code-Python-informational?style=flat&logo=Python&logoColor=white&color=2bbc8a)
-![GitHub Repo stars](https://img.shields.io/github/stars/NUS-Advanced-Robotics-Centre/ME5413_Final_Project?color=FFE333)
-![GitHub Repo forks](https://img.shields.io/github/forks/NUS-Advanced-Robotics-Centre/ME5413_Final_Project?color=FFE333)
+**Project Objectives**
+
+This project based on ME5413_Final_Project of NUS.
+
+The core goal of this project is to build a ROS-based system that enables the robot to:
+
+1.  **Autonomous Navigation:** Navigate autonomously from the starting point to the target location within a given map.  
+2.  **Dynamic Bridge Detection and Crossing:** Dynamically detect the position of bridges and safely cross them.  
+3.  **Box Detection and Recognition:** Detect and recognize boxes with numbers in the environment, identifying their type (via the number) and position.  
+4.  **Goal Orientation:** Determine specific goals, such as locating the least frequently appearing box, and navigate to it.  
+
+**System Architecture**
+
+The system consists of multiple ROS nodes, each responsible for a specific function:
+
+*   **`sequential_goals.py` (Main Navigation Node):** This is the core control node of the entire system. It coordinates the operation of other nodes and implements the predefined task flow. It is mainly responsible for:
+    *   **Task Decomposition:** Breaking down the overall task into a series of subtasks (e.g., navigate to the initial area, scan boxes, detect bridge, cross bridge, navigate to the target box).
+    *   **State Management:** Maintaining the system state and performing different actions according to state transitions.
+    *   **Action Coordination:** Coordinating the work of other nodes via ROS topics and services.
+    *   **Navigation Goal Publishing:** Publishing navigation goals to the `move_base` node to control robot movement.
+*   **`bridge_crosser.py` (Bridge Detection Node):** Responsible for detecting bridges on the map and providing their location to the system. It is mainly responsible for:
+    *   **Map Analysis:** Analyzing map data to find potential bridge candidate areas.
+    *   **Lidar Confirmation:** Verifying candidate areas using LIDAR data to confirm if they are actual bridges.
+    *   **Location Publishing:** Publishing the detected bridge location to a ROS topic.
+    *   **Unlock Command:** Sending unlock commands to allow the robot to cross.
+*   **`box_detector.py` (Box Detection Node):** Responsible for detecting and recognizing boxes in the environment and providing their type and location to the system. It is mainly responsible for:
+    *   **Image Processing:** Using camera images to detect boxes and recognize digits.
+    *   **Lidar Assistance:** Assisting with position estimation using LIDAR data.
+    *   **OCR:** Recognizing digits on boxes using OCR technology.
+    *   **Position Estimation:** Estimating the position of the boxes in the global coordinate frame.
+    *   **Data Publishing:** Publishing the detected box information to a ROS topic.
+*   **`move_base` (Navigation Meta Node):** Provides core navigation functionality for the robot. It is mainly responsible for:
+    *   **Path Planning:** Planning a global path from the current location to the target location based on map data.
+    *   **Local Obstacle Avoidance:** Using sensor data (e.g., LIDAR) to detect obstacles and plan a local path to avoid them.
+    *   **Motion Control:** Controlling the robot to follow the planned path and reach the target location.
+*   **Other Nodes (`robot_pose_publisher`):** Provide pose estimation for the robot, based on odometry, LIDAR, or other sensor data.
+*   **Rviz:** Visualization of results.
+
+**Detailed Workflow**
+
+1.  **Initialization:**
+    *   Start all ROS nodes.
+    *   The `bridge_crosser.py` node analyzes map data to find potential bridge candidate areas.
+    *   The `box_detector.py` node initializes the camera and LIDAR sensors, preparing for box detection.
+    *   The `move_base` node loads map data and configuration parameters, preparing for navigation.
+2.  **Navigate to Initial Area:**
+    *   The `sequential_goals.py` node retrieves the first navigation goal from the `initial_nav_points` list and creates a `MoveBaseGoal` message.
+    *   The `sequential_goals.py` node sends the `MoveBaseGoal` message to the `move_base` node.
+    *   The `move_base` node plans a global and local path from the current position to the target location and controls the robot to move.
+    *   The robot follows the planned path until it reaches the target location.
+3.  **Scan Pre-Bridge Area:**
+    *   The `sequential_goals.py` node retrieves scan points from the `pre_bridge_scan_points` list and performs the following steps:
+        *   Navigate to the scan point.
+        *   Send a scan command to the `box_detector.py` node to start box detection.
+        *   Wait for a period to allow `box_detector.py` to detect boxes and publish information.
+        *   Stop box detection.
+4.  **Detect Bridge:**
+    *   The `sequential_goals.py` node sends a command to `bridge_crosser.py` to detect bridges.
+    *   The `bridge_crosser.py` node analyzes map and LIDAR data to detect the bridge location.
+    *   The `bridge_crosser.py` node publishes the detected bridge location to a ROS topic.
+5.  **Cross the Bridge:**
+    *   The `sequential_goals.py` node subscribes to the bridge location topic published by `bridge_crosser.py`.
+    *   Based on the bridge location, it calculates the center of the bridge and sets a target point at a certain distance perpendicular to the center.
+    *   The `sequential_goals.py` node creates a navigation goal and sends it to the `move_base` node.
+    *   Unlock the obstacle.
+    *   The `move_base` node controls the robot to cross the bridge.
+6.  **Scan Post-Bridge Area:**
+    *   Similar to scanning the pre-bridge area, the `sequential_goals.py` node retrieves scan points from the `post_bridge_scan_points` list and performs navigation and scanning operations in sequence.
+7.  **Find the Least Frequently Appearing Box:**
+    *   The `sequential_goals.py` node subscribes to the box type topic published by `box_detector.py`.
+    *   It analyzes the data to find the least frequently appearing box and sets it as the target box.
+8.  **Navigate to Target Box:**
+    *   The `sequential_goals.py` node listens to the `/target_box_pose` topic, retrieves the position of the nearest box, creates a target goal, and sends it to the `move_base` node.
+    *   The `move_base` node controls the robot to navigate near the target box.
+
+**Technical Details**
+
+* **Coordinate Transformation:** Uses TF to transform coordinates.
+* **State Machine:** A simple state machine is implemented in `sequential_goals.py` for task planning.
+* **Message Passing:** Uses topics for message transmission.
+* **Behavior Control:** The main program calls subprograms to achieve system integration.
+
 
 ![cover_image](src/me5413_world/media/gz_world.png)
 
@@ -91,6 +166,18 @@ There are two sources of models needed:
   # Copy the customized models into the `~/.gazebo/models` directory
   cp -r ~/ME5413_Final_Project/src/me5413_world/models/* ~/.gazebo/models
   ```
+  
+* [operation for additional dependence and package]
+
+  ```bash
+    sudo apt update
+    sudo apt install tesseract-ocr
+
+    pip install pytesseract
+    pip install easyocr
+  ```
+  
+
 
 ## Usage
 
@@ -148,40 +235,12 @@ roslaunch me5413_world navigation.launch
 
 ![rviz_navigation_image](src/me5413_world/media/rviz_navigation.png)
 
-## Student Tasks
+## Display the work that has been done so far
+phase1_navigation_gif:
+![phase1_navigation_gif](output/phase1_nav.gif)
+phase2_detection_gif:
+![phase2_detection_gif](output/phase2_detect.gif)
+phase2_navigation_gif:
+![phase2_navigation_gif](output/phase2_nav.gif)
 
-### 1. Map the environment
 
-* You may use any SLAM algorithm you like, any type:
-  * 2D LiDAR
-  * 3D LiDAR
-  * Vision
-  * Multi-sensor
-* Verify your SLAM accuracy by comparing your odometry with the published `/gazebo/ground_truth/state` topic (`nav_msgs::Odometry`), which contains the gournd truth odometry of the robot.
-* You may want to use tools like [EVO](https://github.com/MichaelGrupp/evo) to quantitatively evaluate the performance of your SLAM algorithm.
-
-### 2. Using your own map, navigate your robot
-
-* We have provided you a GUI in RVIZ that allows you to click and generate/clear the random objects in the gazebo world:
-  
-  ![rviz_panel_image](src/me5413_world/media/control_panel.png)
-
-* From the starting point, move to one of the four given destination boxes at the end of the map:
-  * Count the number of occurance of each type of box (e.g. box 1, 2, 3, 4, the box numbers are randomly generated)
-  * Cross the bridge (the location of the bridge is randomly generated)
-  * Unlock the blockade on the bridge by publishing a `true` message (`std_msgs/Bool`) to the `/cmd_open_bridge` topic
-  * Dock at the destination box with the least number of occurance
-
-## Contribution
-
-You are welcome contributing to this repo by opening a pull-request
-
-We are following:
-
-* [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html),
-* [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#main),
-* [ROS C++ Style Guide](http://wiki.ros.org/CppStyleGuide)
-
-## License
-
-The [ME5413_Final_Project](https://github.com/NUS-Advanced-Robotics-Centre/ME5413_Final_Project) is released under the [MIT License](https://github.com/NUS-Advanced-Robotics-Centre/ME5413_Final_Project/blob/main/LICENSE)
